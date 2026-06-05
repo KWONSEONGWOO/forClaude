@@ -1,0 +1,2 @@
+# forClaude
+first made repository
