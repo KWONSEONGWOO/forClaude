@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude Plan Usage
 // @namespace    claude-plan-usage
-// @version      4.0.0
+// @version      4.1.0
 // @description  claude.ai 사이드바에 플랜 사용량(세션/주간)을 표시합니다
 // @author       Claude Code
 // @match        https://claude.ai/*
@@ -69,21 +69,23 @@
   }
 
   // 메시지 전송 후 플랜 사용량 즉시 갱신
+  // 주의: 응답 본문(스트림)은 절대 읽거나 clone()하지 않는다.
+  // 스트리밍 응답을 clone().text()로 읽으면 브라우저가 스트림을 이중 버퍼링하여
+  // 메모리가 누적되고 다음 접속 시 무한 로딩이 발생할 수 있다.
   const originalFetch = window.fetch;
   window.fetch = async function (...args) {
-    const [input, init] = args;
-    const url = typeof input === 'string' ? input : input?.url || '';
     const response = await originalFetch.apply(this, args);
-    if (url.includes('/completion') && init?.method === 'POST' && response.ok) {
-      // 응답 스트림 끝나면 사용량 갱신
-      try {
-        const cloned = response.clone();
-        cloned.text().then(() => {
+    try {
+      const [input, init] = args;
+      const url = typeof input === 'string' ? input : input?.url || '';
+      if (url.includes('/completion') && init?.method === 'POST' && response.ok) {
+        // 본문은 건드리지 않고, 잠시 후 사용량 API만 다시 호출
+        setTimeout(() => {
           state.lastUsageFetch = 0;
           fetchPlanUsage();
-        }).catch(() => {});
-      } catch (e) {}
-    }
+        }, 4000);
+      }
+    } catch (e) {}
     return response;
   };
 
@@ -262,7 +264,7 @@
     loadPrefs();
     tick();
     setInterval(tick, CONFIG.POLL_INTERVAL);
-    console.log('[PlanUsage] v4.0.0 initialized');
+    console.log('[PlanUsage] v4.1.0 initialized');
   }
 
   if (document.readyState === 'loading') {
