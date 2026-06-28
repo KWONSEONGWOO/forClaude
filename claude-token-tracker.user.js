@@ -1,20 +1,19 @@
 // ==UserScript==
 // @name         Claude Plan Usage
 // @namespace    claude-plan-usage
-// @version      4.2.0
-// @description  claude.ai 사이드바에 플랜 사용량(세션/주간)을 표시합니다
+// @version      5.0.0
+// @description  claude.ai 화면에 플랜 사용량(세션/주간)을 표시합니다
 // @author       Claude Code
 // @match        https://claude.ai/*
 // @grant        none
-// @run-at       document-start
+// @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   'use strict';
 
   const CONFIG = {
-    POLL_INTERVAL: 4000,
-    USAGE_API_INTERVAL: 60000,
+    POLL_INTERVAL: 60000, // 사용량 API 호출 주기
   };
 
   // ═══════════════════════════════════════════
@@ -54,7 +53,7 @@
 
   async function fetchPlanUsage() {
     const now = Date.now();
-    if (now - state.lastUsageFetch < CONFIG.USAGE_API_INTERVAL) return;
+    if (now - state.lastUsageFetch < CONFIG.POLL_INTERVAL) return;
     state.lastUsageFetch = now;
 
     const orgId = getOrgId();
@@ -67,7 +66,6 @@
       updateUI();
     } catch (e) {}
   }
-
 
   function formatResetTime(isoStr) {
     if (!isoStr) return '';
@@ -96,6 +94,8 @@
 
   // ═══════════════════════════════════════════
   // UI
+  //   React가 관리하는 DOM에 끼워넣지 않고,
+  //   document.body에 fixed로 독립 배치하여 충돌을 방지한다.
   // ═══════════════════════════════════════════
   function createWidget() {
     const w = document.createElement('div');
@@ -103,49 +103,52 @@
     w.innerHTML = `
       <style>
         #claude-plan-usage {
-          width:100%; padding:8px 12px;
-          border-top:1px solid var(--border-300,rgba(0,0,0,0.08));
+          position:fixed; left:12px; bottom:12px; z-index:2147483000;
+          width:220px; padding:8px 12px;
+          border:1px solid rgba(0,0,0,0.10); border-radius:10px;
+          background:rgba(255,255,255,0.95);
+          box-shadow:0 2px 10px rgba(0,0,0,0.12);
+          backdrop-filter:blur(6px);
           font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-          font-size:12px; color:var(--text-500,#6b7280);
-          background:transparent; user-select:none;
+          font-size:12px; color:#6b7280; user-select:none;
+        }
+        @media (prefers-color-scheme: dark) {
+          #claude-plan-usage {
+            background:rgba(38,38,38,0.95); border-color:rgba(255,255,255,0.10);
+            color:#9ca3af;
+          }
         }
         #claude-plan-usage * { box-sizing:border-box; }
         #cpu-header {
           display:flex; align-items:center; justify-content:space-between;
           cursor:pointer; padding:2px 0;
         }
-        #cpu-header:hover { color:var(--text-300,#374151); }
         #cpu-title {
           font-weight:600; font-size:11px; text-transform:uppercase;
           letter-spacing:.5px; display:flex; align-items:center; gap:5px;
         }
         #cpu-toggle { font-size:10px; }
         #cpu-body { overflow:hidden; transition:max-height .25s ease,opacity .2s ease; }
-        #cpu-body.collapsed { max-height:0!important; opacity:0; }
+        #cpu-body.collapsed { max-height:0!important; opacity:0; margin:0; }
         #cpu-body.expanded { max-height:300px; opacity:1; }
         .cpu-section { margin-bottom:6px; }
-        .cpu-section-title {
-          font-size:10px; font-weight:600; color:var(--text-400,#6b7280);
-          margin-bottom:2px;
-        }
+        .cpu-section-title { font-size:10px; font-weight:600; margin-bottom:2px; }
         .cpu-bar-label {
           display:flex; justify-content:space-between; align-items:baseline;
           margin-bottom:1px;
         }
-        .cpu-pct {
-          font-size:14px; font-weight:700; font-variant-numeric:tabular-nums;
-        }
-        .cpu-sub { font-size:9px; color:var(--text-500,#9ca3af); }
+        .cpu-pct { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; }
+        .cpu-sub { font-size:9px; opacity:.8; }
         .cpu-bar-bg {
           width:100%; height:4px; border-radius:2px; margin:2px 0;
-          overflow:hidden; background:var(--bg-300,rgba(0,0,0,0.06));
+          overflow:hidden; background:rgba(0,0,0,0.08);
         }
         .cpu-bar {
           height:100%; border-radius:2px; min-width:2px;
           transition:width .5s ease,background-color .3s ease;
         }
-        .cpu-div { height:1px; background:var(--border-300,rgba(0,0,0,0.06)); margin:5px 0; }
-        #cpu-updated { font-size:9px; color:var(--text-500,#9ca3af); text-align:right; margin-top:3px; }
+        .cpu-div { height:1px; background:rgba(0,0,0,0.08); margin:5px 0; }
+        #cpu-updated { font-size:9px; opacity:.7; text-align:right; margin-top:3px; }
       </style>
 
       <div id="cpu-header">
@@ -180,28 +183,23 @@
 
     w.querySelector('#cpu-header').addEventListener('click', () => {
       state.isCollapsed = !state.isCollapsed; savePrefs();
-      const body = w.querySelector('#cpu-body');
-      const tog = w.querySelector('#cpu-toggle');
-      if (state.isCollapsed) { body.classList.replace('expanded','collapsed'); tog.textContent='▶'; }
-      else { body.classList.replace('collapsed','expanded'); tog.textContent='▼'; }
+      applyCollapsed(w);
     });
 
-    if (state.isCollapsed) {
-      w.querySelector('#cpu-body').classList.replace('expanded','collapsed');
-      w.querySelector('#cpu-toggle').textContent = '▶';
-    }
-
+    applyCollapsed(w);
     return w;
+  }
+
+  function applyCollapsed(w) {
+    const body = w.querySelector('#cpu-body');
+    const tog = w.querySelector('#cpu-toggle');
+    if (state.isCollapsed) { body.classList.replace('expanded','collapsed'); tog.textContent='▶'; }
+    else { body.classList.replace('collapsed','expanded'); tog.textContent='▼'; }
   }
 
   function mountWidget() {
     if (document.getElementById('claude-plan-usage')) return;
-    const btn = document.querySelector('[data-testid="user-menu-button"]');
-    if (!btn) return;
-    const border = btn.parentElement?.parentElement;
-    const sidebar = border?.parentElement;
-    if (!sidebar) return;
-    sidebar.insertBefore(createWidget(), border);
+    document.body.appendChild(createWidget());
   }
 
   function updateUI() {
@@ -243,13 +241,13 @@
   function init() {
     loadPrefs();
     tick();
-    setInterval(tick, CONFIG.POLL_INTERVAL);
-    console.log('[PlanUsage] v4.2.0 initialized');
+    setInterval(tick, 5000); // 위젯 유지 + 갱신 시간 표시 (API는 내부에서 60초 스로틀)
+    console.log('[PlanUsage] v5.0.0 initialized');
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 2000));
+    document.addEventListener('DOMContentLoaded', init);
   } else {
-    setTimeout(init, 2000);
+    init();
   }
 })();
