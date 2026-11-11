@@ -170,7 +170,6 @@
 
       <div id="cpu-header">
         <span id="cpu-title">
-          <span>📊</span>
           <span>플랜 사용량</span>
         </span>
         <span id="cpu-toggle">▼</span>
